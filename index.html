@@ -47,8 +47,8 @@
       const WORLD_HEIGHT = IS_LANDSCAPE ? 390 : 844;
       const PLAYER_X = IS_LANDSCAPE ? 132 : 92;
       const GRAVITY = 285;
-      const THRUST = -760;
-      const THRUST_PULSE = -135;
+      const CONTROL_SPEED = 210;
+      const CONTROL_RESPONSE = 8.5;
       const SCROLL_SPEED = IS_LANDSCAPE ? 205 : 170;
       const CHUNK_WIDTH = IS_LANDSCAPE ? 150 : 132;
       const FADE_MS = 1500;
@@ -61,7 +61,7 @@
       const ROCK_MAX_DEPTH = IS_LANDSCAPE ? 148 : 315;
       const ROCK_EDGE_JITTER = IS_LANDSCAPE ? 32 : 70;
       const ROCK_TOOTH_DEPTH = IS_LANDSCAPE ? 52 : 96;
-      const GAME_VERSION = "0.0.1";
+      const GAME_VERSION = "0.0.3";
       const RECORD_KEY = "sonarDashRecordMeters";
 
       class SonarDash extends Phaser.Scene {
@@ -75,7 +75,7 @@
           this.nextChunkX = 0;
           this.nextMineX = 0;
           this.nextWhaleX = 0;
-          this.isThrusting = false;
+          this.inputDirection = 0;
           this.ripples = [];
           this.landChunks = [];
           this.mines = [];
@@ -103,8 +103,8 @@
           this.createPlayer();
           this.createUi();
           this.input.on("pointerdown", this.handlePointer, this);
-          this.input.on("pointerup", this.stopThrust, this);
-          this.input.on("pointerout", this.stopThrust, this);
+          this.input.on("pointerup", this.stopControl, this);
+          this.input.on("pointerout", this.stopControl, this);
 
           this.nextChunkX = WORLD_WIDTH + 170;
           while (this.nextChunkX < WORLD_WIDTH + CHUNK_WIDTH * 2) {
@@ -264,12 +264,14 @@
           }).setOrigin(1, 0).setScrollFactor(0);
 
           this.versionText = this.add.text(WORLD_WIDTH - 14, WORLD_HEIGHT - 12, `v${GAME_VERSION}`, {
-            color: "#426c70",
-            fontSize: "12px",
-            fontStyle: "700"
-          }).setOrigin(1, 1).setAlpha(0.8).setScrollFactor(0);
+            color: "#7dfcff",
+            fontSize: "14px",
+            fontStyle: "800",
+            stroke: "#001214",
+            strokeThickness: 3
+          }).setOrigin(1, 1).setAlpha(0.86).setScrollFactor(0);
 
-          this.hintText = this.add.text(WORLD_WIDTH / 2, WORLD_HEIGHT - 72, "Hold to rise", {
+          this.hintText = this.add.text(WORLD_WIDTH / 2, WORLD_HEIGHT - 72, "Top: rise  Bottom: dive", {
             color: "#7dfcff",
             fontSize: "18px",
             fontStyle: "700"
@@ -278,14 +280,13 @@
           this.uiLayer.add([this.scoreText, this.recordText, this.versionText, this.hintText]);
         }
 
-        handlePointer() {
+        handlePointer(pointer) {
           if (this.isGameOver) {
             this.restartGame();
             return;
           }
 
-          this.isThrusting = true;
-          this.player.body.setVelocityY(Phaser.Math.Clamp(this.player.body.velocity.y + THRUST_PULSE, -235, 120));
+          this.inputDirection = pointer.y < WORLD_HEIGHT / 2 ? -1 : 1;
           this.tweens.add({
             targets: this.player,
             scaleY: 0.96,
@@ -298,41 +299,26 @@
           this.hintText.setVisible(false);
         }
 
-        stopThrust() {
-          this.isThrusting = false;
+        stopControl() {
+          this.inputDirection = 0;
         }
 
         restartGame() {
           if (this.restartRequested) return;
           this.restartRequested = true;
-          this.isThrusting = false;
+          this.inputDirection = 0;
           this.input.enabled = false;
           this.physics.resume();
           this.time.delayedCall(30, () => this.scene.restart());
         }
 
         emitSonar() {
-          const wave = this.add.container(this.player.x, this.player.y);
+          const wave = this.add.graphics();
           wave.birth = this.time.now;
           wave.pulseX = this.player.x;
           wave.pulseY = this.player.y;
           wave.radiusNow = 8;
-          wave.dots = [];
-
-          const addDot = (angle, factor, color, alpha, size) => {
-            const dot = this.add.circle(0, 0, size, color, alpha);
-            wave.add(dot);
-            wave.dots.push({ dot, angle, factor });
-          };
-
-          [-0.56, -0.38, -0.2, 0, 0.2, 0.38, 0.56].forEach((angle) => {
-            addDot(angle, 1, 0x7dfcff, 0.92, 2.2);
-          });
-          [-0.34, -0.12, 0.12, 0.34].forEach((angle) => {
-            addDot(angle, 0.72, 0xbaff7a, 0.45, 1.5);
-          });
-
-          this.updateSonarDots(wave);
+          this.drawSonarWave(wave);
           this.sonarLayer.add(wave);
           this.ripples.push(wave);
 
@@ -344,11 +330,21 @@
           });
         }
 
-        updateSonarDots(wave) {
-          wave.dots.forEach(({ dot, angle, factor }) => {
-            const radius = wave.radiusNow * factor;
-            dot.setPosition(Math.cos(angle) * radius, Math.sin(angle) * radius);
-          });
+        drawSonarWave(wave) {
+          const drawSegment = (radius, start, end, color, alpha, width) => {
+            wave.lineStyle(width, color, alpha);
+            wave.beginPath();
+            wave.arc(wave.pulseX, wave.pulseY, radius, start, end, false);
+            wave.strokePath();
+          };
+
+          wave.clear();
+          const r = wave.radiusNow;
+          drawSegment(r, -0.62, -0.34, 0x7dfcff, 0.88, 2);
+          drawSegment(r, -0.22, 0.22, 0x7dfcff, 0.95, 2);
+          drawSegment(r, 0.34, 0.62, 0x7dfcff, 0.88, 2);
+          drawSegment(r * 0.72, -0.42, -0.18, 0xbaff7a, 0.42, 1);
+          drawSegment(r * 0.72, 0.18, 0.42, 0xbaff7a, 0.42, 1);
         }
 
         spawnRockFormation() {
@@ -559,11 +555,16 @@
             this.recordText.setText(`Best ${Math.floor(this.distance)} m`);
           }
 
-          if (this.isThrusting) {
-            this.player.body.velocity.y += THRUST * dt;
+          if (this.inputDirection !== 0) {
+            const targetY = CONTROL_SPEED * this.inputDirection;
+            this.player.body.velocity.y = Phaser.Math.Linear(
+              this.player.body.velocity.y,
+              targetY,
+              Math.min(1, CONTROL_RESPONSE * dt)
+            );
           }
 
-          this.player.body.velocity.y = Phaser.Math.Clamp(this.player.body.velocity.y, -265, 315);
+          this.player.body.velocity.y = Phaser.Math.Clamp(this.player.body.velocity.y, -240, 240);
           this.player.rotation = Phaser.Math.Clamp(this.player.body.velocity.y / 950, -0.22, 0.36);
           if (this.player.y < 42) {
             this.player.y = 42;
@@ -635,7 +636,7 @@
             const age = this.time.now - ring.birth;
             const radius = 8 + (age / 1000) * SONAR_SPEED;
             ring.radiusNow = radius;
-            this.updateSonarDots(ring);
+            this.drawSonarWave(ring);
 
             if (radius > SONAR_MAX_RADIUS || ring.alpha <= 0.02) {
               ring.destroy();
