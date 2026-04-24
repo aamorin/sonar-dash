@@ -42,20 +42,25 @@
 
   <script>
     (() => {
-      const WORLD_WIDTH = 390;
-      const WORLD_HEIGHT = 844;
-      const PLAYER_X = 92;
+      const IS_LANDSCAPE = window.innerWidth >= window.innerHeight;
+      const WORLD_WIDTH = IS_LANDSCAPE ? 844 : 390;
+      const WORLD_HEIGHT = IS_LANDSCAPE ? 390 : 844;
+      const PLAYER_X = IS_LANDSCAPE ? 132 : 92;
       const GRAVITY = 285;
       const THRUST = -760;
       const THRUST_PULSE = -135;
-      const SCROLL_SPEED = 170;
-      const CHUNK_WIDTH = 132;
+      const SCROLL_SPEED = IS_LANDSCAPE ? 205 : 170;
+      const CHUNK_WIDTH = IS_LANDSCAPE ? 150 : 132;
       const FADE_MS = 1500;
       const SONAR_SPEED = 920;
-      const SONAR_MAX_RADIUS = 920;
+      const SONAR_MAX_RADIUS = Math.max(WORLD_WIDTH, WORLD_HEIGHT) * 1.15;
       const SONAR_BAND = 46;
-      const MINE_SPACING = 450;
-      const WHALE_SPACING = 980;
+      const MINE_SPACING = IS_LANDSCAPE ? 560 : 450;
+      const WHALE_SPACING = IS_LANDSCAPE ? 1220 : 980;
+      const ROCK_MIN_DEPTH = IS_LANDSCAPE ? 58 : 135;
+      const ROCK_MAX_DEPTH = IS_LANDSCAPE ? 148 : 315;
+      const ROCK_EDGE_JITTER = IS_LANDSCAPE ? 32 : 70;
+      const ROCK_TOOTH_DEPTH = IS_LANDSCAPE ? 52 : 96;
 
       class SonarDash extends Phaser.Scene {
         constructor() {
@@ -195,7 +200,7 @@
           const skip = Phaser.Math.FloatBetween(0, 1) < 0.26;
           if (!skip) {
             const top = Phaser.Math.FloatBetween(0, 1) < 0.5;
-            const depth = Phaser.Math.Between(135, 315);
+            const depth = Phaser.Math.Between(ROCK_MIN_DEPTH, ROCK_MAX_DEPTH);
             const teeth = Phaser.Math.Between(3, 5);
             const points = [];
 
@@ -203,18 +208,18 @@
               points.push({ x, y: 0 }, { x: x + width, y: 0 });
               for (let i = teeth; i >= 0; i -= 1) {
                 const px = x + (width * i) / teeth;
-                const edge = depth + Phaser.Math.Between(-70, 42);
-                const tooth = i % 2 === 0 ? edge + Phaser.Math.Between(36, 92) : edge;
-                points.push({ x: px, y: Phaser.Math.Clamp(tooth, 84, 360) });
+                const edge = depth + Phaser.Math.Between(-ROCK_EDGE_JITTER, Math.floor(ROCK_EDGE_JITTER * 0.6));
+                const tooth = i % 2 === 0 ? edge + Phaser.Math.Between(24, ROCK_TOOTH_DEPTH) : edge;
+                points.push({ x: px, y: Phaser.Math.Clamp(tooth, 42, WORLD_HEIGHT - 120) });
               }
               this.createLandPolygon(points, "top");
             } else {
               points.push({ x, y: WORLD_HEIGHT }, { x: x + width, y: WORLD_HEIGHT });
               for (let i = teeth; i >= 0; i -= 1) {
                 const px = x + (width * i) / teeth;
-                const edge = WORLD_HEIGHT - depth + Phaser.Math.Between(-42, 70);
-                const tooth = i % 2 === 0 ? edge - Phaser.Math.Between(36, 96) : edge;
-                points.push({ x: px, y: Phaser.Math.Clamp(tooth, WORLD_HEIGHT - 360, WORLD_HEIGHT - 86) });
+                const edge = WORLD_HEIGHT - depth + Phaser.Math.Between(-Math.floor(ROCK_EDGE_JITTER * 0.6), ROCK_EDGE_JITTER);
+                const tooth = i % 2 === 0 ? edge - Phaser.Math.Between(24, ROCK_TOOTH_DEPTH) : edge;
+                points.push({ x: px, y: Phaser.Math.Clamp(tooth, 120, WORLD_HEIGHT - 42) });
               }
               this.createLandPolygon(points, "bottom");
             }
@@ -262,7 +267,8 @@
         spawnMine() {
           const radius = Phaser.Math.Between(15, 22);
           const x = this.nextMineX;
-          const y = Phaser.Math.Between(150, WORLD_HEIGHT - 150);
+          const margin = IS_LANDSCAPE ? 76 : 150;
+          const y = Phaser.Math.Between(margin, WORLD_HEIGHT - margin);
           const mine = this.add.container(x, y);
           const body = this.add.circle(0, 0, radius, 0x13302a, 1)
             .setStrokeStyle(2, 0xbaff7a, 0.95);
@@ -294,7 +300,8 @@
 
         spawnWhale() {
           const x = this.nextWhaleX;
-          const y = Phaser.Math.Between(190, WORLD_HEIGHT - 190);
+          const whaleMargin = IS_LANDSCAPE ? 104 : 190;
+          const y = Phaser.Math.Between(whaleMargin, WORLD_HEIGHT - whaleMargin);
           const whale = this.add.container(x, y);
           const body = this.add.ellipse(0, 0, 132, 44, 0x071b24, 1)
             .setStrokeStyle(2, 0x7dfcff, 0.95);
@@ -528,7 +535,15 @@
         scene: SonarDash
       });
 
-      window.addEventListener("resize", () => game.scale.refresh());
+      let lastLandscape = IS_LANDSCAPE;
+      window.addEventListener("resize", () => {
+        const nextLandscape = window.innerWidth >= window.innerHeight;
+        if (nextLandscape !== lastLandscape) {
+          window.location.reload();
+          return;
+        }
+        game.scale.refresh();
+      });
 
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
