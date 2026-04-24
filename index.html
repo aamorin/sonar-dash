@@ -122,51 +122,105 @@
         createPlayer() {
           if (!this.textures.exists("submarine")) {
             const g = this.add.graphics();
-            g.fillStyle(0x072129, 1);
-            g.lineStyle(2, 0x19f6ff, 0.78);
-            g.fillEllipse(41, 29, 58, 24);
-            g.strokeEllipse(41, 29, 58, 24);
-            g.fillStyle(0x0c323d, 1);
+            const outline = 0x19f6ff;
+            const glow = 0x7dfcff;
+            const green = 0xbaff7a;
+
+            g.fillStyle(0x041018, 0.38);
+            g.fillEllipse(61, 34, 108, 36);
+
+            g.fillStyle(0x072633, 1);
+            g.lineStyle(2, outline, 0.95);
+            g.fillEllipse(58, 34, 88, 30);
+            g.strokeEllipse(58, 34, 88, 30);
+
+            g.fillStyle(0x0a3542, 1);
+            g.lineStyle(1, outline, 0.78);
             g.beginPath();
-            g.moveTo(70, 29);
-            g.lineTo(50, 17);
-            g.lineTo(50, 41);
+            g.moveTo(98, 22);
+            g.lineTo(121, 33);
+            g.lineTo(98, 45);
             g.closePath();
             g.fillPath();
             g.strokePath();
+
+            g.fillStyle(0x08212b, 1);
+            g.fillEllipse(22, 34, 20, 20);
+            g.strokeEllipse(22, 34, 20, 20);
+
+            g.fillStyle(0x08252f, 1);
+            g.lineStyle(1, outline, 0.82);
             g.beginPath();
-            g.moveTo(8, 29);
-            g.lineTo(25, 18);
-            g.lineTo(25, 40);
+            g.moveTo(16, 34);
+            g.lineTo(2, 24);
+            g.lineTo(7, 34);
+            g.lineTo(2, 44);
             g.closePath();
             g.fillPath();
             g.strokePath();
-            g.fillStyle(0x0a2c35, 1);
+
+            g.fillStyle(0x0a3039, 1);
+            g.lineStyle(1, outline, 0.72);
             g.beginPath();
-            g.moveTo(34, 18);
-            g.lineTo(25, 2);
-            g.lineTo(47, 17);
+            g.moveTo(38, 20);
+            g.lineTo(47, 5);
+            g.lineTo(68, 19);
             g.closePath();
             g.fillPath();
             g.strokePath();
-            g.lineStyle(1, 0x7dfcff, 0.28);
+
+            g.fillStyle(0x0b3842, 1);
+            g.lineStyle(1, glow, 0.7);
             g.beginPath();
-            g.moveTo(20, 21);
-            g.lineTo(56, 21);
-            g.moveTo(16, 36);
-            g.lineTo(58, 36);
+            g.moveTo(40, 47);
+            g.lineTo(74, 44);
+            g.lineTo(55, 58);
+            g.closePath();
+            g.fillPath();
             g.strokePath();
-            g.fillStyle(0x7dfcff, 0.42);
-            [22, 36, 52].forEach((x) => g.fillCircle(x, 29, 1.4));
-            g.fillStyle(0xbaff7a, 0.95);
-            g.fillCircle(47, 28, 5);
-            g.generateTexture("submarine", 82, 58);
+
+            g.lineStyle(1, glow, 0.3);
+            g.beginPath();
+            g.moveTo(25, 26);
+            g.lineTo(91, 26);
+            g.moveTo(25, 41);
+            g.lineTo(87, 41);
+            g.moveTo(40, 18);
+            g.lineTo(80, 18);
+            g.strokePath();
+
+            [38, 57, 76].forEach((x) => {
+              g.fillStyle(0x06141a, 1);
+              g.fillCircle(x, 33, 5.5);
+              g.lineStyle(1, glow, 0.82);
+              g.strokeCircle(x, 33, 5.5);
+              g.fillStyle(green, 0.9);
+              g.fillCircle(x + 1, 32, 2.2);
+            });
+
+            g.fillStyle(0x031015, 1);
+            g.lineStyle(1, glow, 0.72);
+            g.fillCircle(11, 34, 5);
+            g.strokeCircle(11, 34, 5);
+            g.lineStyle(1, green, 0.55);
+            g.beginPath();
+            g.moveTo(5, 34);
+            g.lineTo(17, 34);
+            g.moveTo(11, 28);
+            g.lineTo(11, 40);
+            g.strokePath();
+
+            g.fillStyle(green, 0.72);
+            [30, 49, 68, 87].forEach((x) => g.fillCircle(x, 23, 1.2));
+
+            g.generateTexture("submarine", 124, 64);
             g.destroy();
           }
 
           this.player = this.add.image(PLAYER_X, WORLD_HEIGHT * 0.44, "submarine");
           this.physics.add.existing(this.player);
-          this.player.body.setSize(50, 20);
+          this.player.body.setSize(78, 26);
+          this.player.body.setOffset(-39, -13);
           this.player.body.setAllowRotation(false);
           this.player.body.setCollideWorldBounds(false);
           this.player.body.setDragY(260);
