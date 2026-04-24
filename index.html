@@ -81,6 +81,9 @@
 
         create() {
           this.cameras.main.setBackgroundColor("#000000");
+          this.add.rectangle(0, 0, WORLD_WIDTH, WORLD_HEIGHT, 0x000000, 1)
+            .setOrigin(0)
+            .setDepth(-1000);
           this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
           this.physics.world.gravity.y = GRAVITY;
 
@@ -112,21 +115,53 @@
         }
 
         createPlayer() {
-          this.player = this.add.container(PLAYER_X, WORLD_HEIGHT * 0.44);
-          const hull = this.add.ellipse(0, 0, 58, 24, 0x072129, 1)
-            .setStrokeStyle(2, 0x19f6ff, 0.95);
-          const nose = this.add.triangle(29, 0, 0, -12, 0, 12, 18, 0, 0x0c323d, 1)
-            .setStrokeStyle(1, 0x19f6ff, 0.9);
-          const tail = this.add.triangle(-33, 0, 0, -11, 0, 11, -15, 0, 0x0c323d, 1)
-            .setStrokeStyle(1, 0x19f6ff, 0.85);
-          const port = this.add.circle(6, -1, 5, 0xbaff7a, 0.95);
-          const fin = this.add.triangle(-4, -10, -13, -27, 8, -11, 0, 0x0a2c35, 1)
-            .setStrokeStyle(1, 0x19f6ff, 0.7);
+          if (!this.textures.exists("submarine")) {
+            const g = this.add.graphics();
+            g.fillStyle(0x072129, 1);
+            g.lineStyle(2, 0x19f6ff, 0.78);
+            g.fillEllipse(41, 29, 58, 24);
+            g.strokeEllipse(41, 29, 58, 24);
+            g.fillStyle(0x0c323d, 1);
+            g.beginPath();
+            g.moveTo(70, 29);
+            g.lineTo(50, 17);
+            g.lineTo(50, 41);
+            g.closePath();
+            g.fillPath();
+            g.strokePath();
+            g.beginPath();
+            g.moveTo(8, 29);
+            g.lineTo(25, 18);
+            g.lineTo(25, 40);
+            g.closePath();
+            g.fillPath();
+            g.strokePath();
+            g.fillStyle(0x0a2c35, 1);
+            g.beginPath();
+            g.moveTo(34, 18);
+            g.lineTo(25, 2);
+            g.lineTo(47, 17);
+            g.closePath();
+            g.fillPath();
+            g.strokePath();
+            g.lineStyle(1, 0x7dfcff, 0.28);
+            g.beginPath();
+            g.moveTo(20, 21);
+            g.lineTo(56, 21);
+            g.moveTo(16, 36);
+            g.lineTo(58, 36);
+            g.strokePath();
+            g.fillStyle(0x7dfcff, 0.42);
+            [22, 36, 52].forEach((x) => g.fillCircle(x, 29, 1.4));
+            g.fillStyle(0xbaff7a, 0.95);
+            g.fillCircle(47, 28, 5);
+            g.generateTexture("submarine", 82, 58);
+            g.destroy();
+          }
 
-          this.player.add([tail, hull, nose, fin, port]);
+          this.player = this.add.image(PLAYER_X, WORLD_HEIGHT * 0.44, "submarine");
           this.physics.add.existing(this.player);
           this.player.body.setSize(50, 20);
-          this.player.body.setOffset(-25, -10);
           this.player.body.setAllowRotation(false);
           this.player.body.setCollideWorldBounds(false);
           this.player.body.setDragY(260);
@@ -176,21 +211,42 @@
         }
 
         emitSonar() {
-          const ring = this.add.circle(this.player.x, this.player.y, 8);
-          ring.setStrokeStyle(2, 0x7dfcff, 0.95);
-          ring.setFillStyle(0x000000, 0);
-          ring.birth = this.time.now;
-          ring.originX = this.player.x;
-          ring.originY = this.player.y;
-          ring.radiusNow = 8;
-          this.sonarLayer.add(ring);
-          this.ripples.push(ring);
+          const wave = this.add.container(this.player.x, this.player.y);
+          wave.birth = this.time.now;
+          wave.pulseX = this.player.x;
+          wave.pulseY = this.player.y;
+          wave.radiusNow = 8;
+          wave.dots = [];
+
+          const addDot = (angle, factor, color, alpha, size) => {
+            const dot = this.add.circle(0, 0, size, color, alpha);
+            wave.add(dot);
+            wave.dots.push({ dot, angle, factor });
+          };
+
+          [-0.56, -0.38, -0.2, 0, 0.2, 0.38, 0.56].forEach((angle) => {
+            addDot(angle, 1, 0x7dfcff, 0.92, 2.2);
+          });
+          [-0.34, -0.12, 0.12, 0.34].forEach((angle) => {
+            addDot(angle, 0.72, 0xbaff7a, 0.45, 1.5);
+          });
+
+          this.updateSonarDots(wave);
+          this.sonarLayer.add(wave);
+          this.ripples.push(wave);
 
           this.tweens.add({
-            targets: ring,
+            targets: wave,
             alpha: 0,
             duration: 1280,
             ease: "Quad.easeOut"
+          });
+        }
+
+        updateSonarDots(wave) {
+          wave.dots.forEach(({ dot, angle, factor }) => {
+            const radius = wave.radiusNow * factor;
+            dot.setPosition(Math.cos(angle) * radius, Math.sin(angle) * radius);
           });
         }
 
@@ -239,13 +295,21 @@
           }
           graphics.closePath();
           graphics.fillPath();
+
+          graphics.lineStyle(2, 0x6aff8a, 0.9);
+          graphics.beginPath();
+          graphics.moveTo(points[2].x, points[2].y);
+          for (let i = 3; i < points.length; i += 1) {
+            graphics.lineTo(points[i].x, points[i].y);
+          }
           graphics.strokePath();
-          graphics.setAlpha(0);
 
           const minX = Math.min(...points.map((p) => p.x));
           const maxX = Math.max(...points.map((p) => p.x));
           const minY = Math.min(...points.map((p) => p.y));
           const maxY = Math.max(...points.map((p) => p.y));
+          this.drawRockTexture(graphics, points, kind, minX, maxX, minY, maxY);
+          graphics.setAlpha(0);
           const collider = this.add.zone(minX, minY, maxX - minX, maxY - minY).setOrigin(0);
           this.physics.add.existing(collider, true);
           this.physics.add.collider(this.player, collider, () => this.endGame());
@@ -262,6 +326,25 @@
             radius: Phaser.Math.Distance.Between(minX, minY, maxX, maxY) * 0.5
           };
           this.landChunks.push(chunk);
+        }
+
+        drawRockTexture(graphics, points, kind, minX, maxX, minY, maxY) {
+          graphics.lineStyle(1, 0x144b41, 0.58);
+          const edgePoints = points.slice(2);
+          edgePoints.forEach((point, index) => {
+            const lean = index % 2 === 0 ? 10 : -8;
+            graphics.beginPath();
+            graphics.moveTo(point.x, point.y);
+            graphics.lineTo(point.x + lean, kind === "top" ? Math.max(0, point.y - Phaser.Math.Between(28, 74)) : Math.min(WORLD_HEIGHT, point.y + Phaser.Math.Between(28, 74)));
+            graphics.strokePath();
+          });
+
+          graphics.fillStyle(0x6aff8a, 0.16);
+          for (let i = 0; i < 12; i += 1) {
+            const x = Phaser.Math.Between(Math.ceil(minX), Math.floor(maxX));
+            const y = Phaser.Math.Between(Math.ceil(minY), Math.floor(maxY));
+            graphics.fillCircle(x, y, Phaser.Math.FloatBetween(0.7, 1.8));
+          }
         }
 
         spawnMine() {
@@ -281,7 +364,18 @@
             mine.add(this.add.circle(sx, sy, 3, 0xbaff7a, 0.98));
           }
 
-          mine.add([glow, body]);
+          const inner = this.add.circle(0, 0, Math.max(5, radius - 8))
+            .setStrokeStyle(1, 0x7dfcff, 0.5);
+          const seam = this.add.graphics();
+          seam.lineStyle(1, 0xbaff7a, 0.55);
+          seam.beginPath();
+          seam.moveTo(-radius + 4, 0);
+          seam.lineTo(radius - 4, 0);
+          seam.moveTo(0, -radius + 4);
+          seam.lineTo(0, radius - 4);
+          seam.strokePath();
+
+          mine.add([glow, body, inner, seam]);
           mine.setAlpha(0);
           mine.revealAt = -FADE_MS;
           mine.radius = radius + 11;
@@ -315,8 +409,21 @@
             .setStrokeStyle(1, 0xbaff7a, 0.75);
           const eye = this.add.circle(60, -7, 3, 0xbaff7a, 1);
           const glow = this.add.ellipse(0, 0, 154, 62, 0x7dfcff, 0.06);
+          const skin = this.add.graphics();
+          skin.lineStyle(1, 0x7dfcff, 0.24);
+          [-34, -12, 10, 32].forEach((x, i) => {
+            skin.beginPath();
+            skin.moveTo(x, -17 + i % 2);
+            skin.lineTo(x + 16, 15 - i % 2);
+            skin.strokePath();
+          });
+          skin.lineStyle(1, 0xbaff7a, 0.22);
+          skin.beginPath();
+          skin.moveTo(-48, 10);
+          skin.lineTo(44, 13);
+          skin.strokePath();
 
-          whale.add([glow, tailTop, tailBottom, body, head, fin, eye]);
+          whale.add([glow, tailTop, tailBottom, body, head, fin, skin, eye]);
           whale.setAlpha(0);
           whale.revealAt = -FADE_MS;
           whale.radius = 88;
@@ -416,11 +523,11 @@
           for (let i = this.ripples.length - 1; i >= 0; i -= 1) {
             const ring = this.ripples[i];
             ring.x -= SCROLL_SPEED * (delta / 1000);
-            ring.originX -= SCROLL_SPEED * (delta / 1000);
+            ring.pulseX = ring.x;
             const age = this.time.now - ring.birth;
             const radius = 8 + (age / 1000) * SONAR_SPEED;
-            ring.radius = radius;
             ring.radiusNow = radius;
+            this.updateSonarDots(ring);
 
             if (radius > SONAR_MAX_RADIUS || ring.alpha <= 0.02) {
               ring.destroy();
@@ -435,21 +542,21 @@
         revealTouchedBy(ring) {
           const now = this.time.now;
           this.landChunks.forEach((chunk) => {
-            const d = Phaser.Math.Distance.Between(ring.originX, ring.originY, chunk.centerX, chunk.centerY);
+            const d = Phaser.Math.Distance.Between(ring.pulseX, ring.pulseY, chunk.centerX, chunk.centerY);
             if (Math.abs(d - ring.radiusNow) < chunk.radius + SONAR_BAND) {
               chunk.revealAt = now;
             }
           });
 
           this.mines.forEach((mine) => {
-            const d = Phaser.Math.Distance.Between(ring.originX, ring.originY, mine.x, mine.y);
+            const d = Phaser.Math.Distance.Between(ring.pulseX, ring.pulseY, mine.x, mine.y);
             if (Math.abs(d - ring.radiusNow) < mine.radius + SONAR_BAND) {
               mine.revealAt = now;
             }
           });
 
           this.whales.forEach((whale) => {
-            const d = Phaser.Math.Distance.Between(ring.originX, ring.originY, whale.x, whale.y);
+            const d = Phaser.Math.Distance.Between(ring.pulseX, ring.pulseY, whale.x, whale.y);
             if (Math.abs(d - ring.radiusNow) < whale.radius + SONAR_BAND) {
               whale.revealAt = now;
             }
@@ -481,9 +588,7 @@
           if (this.isGameOver) return;
           this.isGameOver = true;
           this.physics.pause();
-          this.player.list.forEach((part) => {
-            if (part.setTint) part.setTint(0xff4665);
-          });
+          this.player.setTint(0xff4665);
           this.player.rotation = 0.2;
 
           const veil = this.add.rectangle(0, 0, WORLD_WIDTH, WORLD_HEIGHT, 0x000000, 0.72).setOrigin(0);
@@ -530,7 +635,8 @@
         },
         render: {
           antialias: true,
-          pixelArt: false
+          pixelArt: false,
+          clearBeforeRender: true
         },
         scene: SonarDash
       });

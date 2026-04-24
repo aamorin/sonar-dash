@@ -1,4 +1,4 @@
-const CACHE_NAME = "sonar-dash-20260424-6";
+const CACHE_NAME = "sonar-dash-20260424-13";
 const APP_SHELL = [
   "./",
   "./index.html",
