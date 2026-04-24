@@ -65,6 +65,9 @@
       class SonarDash extends Phaser.Scene {
         constructor() {
           super("SonarDash");
+        }
+
+        init() {
           this.isGameOver = false;
           this.distance = 0;
           this.nextChunkX = 0;
@@ -75,6 +78,7 @@
           this.landChunks = [];
           this.mines = [];
           this.whales = [];
+          this.restartRequested = false;
         }
 
         preload() {}
@@ -84,6 +88,7 @@
           this.add.rectangle(0, 0, WORLD_WIDTH, WORLD_HEIGHT, 0x000000, 1)
             .setOrigin(0)
             .setDepth(-1000);
+          this.physics.resume();
           this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
           this.physics.world.gravity.y = GRAVITY;
 
@@ -188,7 +193,7 @@
 
         handlePointer() {
           if (this.isGameOver) {
-            this.scene.restart();
+            this.restartGame();
             return;
           }
 
@@ -208,6 +213,15 @@
 
         stopThrust() {
           this.isThrusting = false;
+        }
+
+        restartGame() {
+          if (this.restartRequested) return;
+          this.restartRequested = true;
+          this.isThrusting = false;
+          this.input.enabled = false;
+          this.physics.resume();
+          this.time.delayedCall(30, () => this.scene.restart());
         }
 
         emitSonar() {
@@ -605,12 +619,16 @@
             fontStyle: "800"
           }).setOrigin(0.5);
           const button = this.add.rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.56, 210, 54, 0x092d32, 1)
-            .setStrokeStyle(2, 0x7dfcff, 1);
+            .setStrokeStyle(2, 0x7dfcff, 1)
+            .setInteractive({ useHandCursor: true });
           const restart = this.add.text(WORLD_WIDTH / 2, WORLD_HEIGHT * 0.56, "Tap to Restart", {
             color: "#eaffff",
             fontSize: "20px",
             fontStyle: "800"
           }).setOrigin(0.5);
+          button.on("pointerdown", () => this.restartGame());
+          restart.setInteractive({ useHandCursor: true });
+          restart.on("pointerdown", () => this.restartGame());
 
           this.uiLayer.add([veil, title, score, button, restart]);
         }
