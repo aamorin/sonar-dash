@@ -1,4 +1,4 @@
-const CACHE_NAME = "sonar-dash-20260424-5";
+const CACHE_NAME = "sonar-dash-20260424-6";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,7 +6,7 @@ const APP_SHELL = [
   "./icon.svg",
   "./icon-192.png",
   "./icon-512.png",
-  "https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"
+  "./phaser.min.js"
 ];
 
 self.addEventListener("install", (event) => {
