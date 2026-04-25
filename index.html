@@ -50,7 +50,7 @@
       const CONTROL_SPEED = 210;
       const CONTROL_RESPONSE = 8.5;
       const SCROLL_SPEED = IS_LANDSCAPE ? 205 : 170;
-      const CHUNK_WIDTH = IS_LANDSCAPE ? 150 : 132;
+      const CHUNK_WIDTH = IS_LANDSCAPE ? 130 : 110;
       const FADE_MS = 1500;
       const SONAR_SPEED = 920;
       const SONAR_MAX_RADIUS = Math.max(WORLD_WIDTH, WORLD_HEIGHT) * 1.15;
@@ -59,9 +59,13 @@
       const WHALE_SPACING = IS_LANDSCAPE ? 1520 : 1240;
       const ROCK_MIN_DEPTH = IS_LANDSCAPE ? 58 : 135;
       const ROCK_MAX_DEPTH = IS_LANDSCAPE ? 148 : 315;
-      const ROCK_EDGE_JITTER = IS_LANDSCAPE ? 32 : 70;
-      const ROCK_TOOTH_DEPTH = IS_LANDSCAPE ? 52 : 96;
-      const GAME_VERSION = "0.0.3";
+      const ROCK_EDGE_JITTER = IS_LANDSCAPE ? 28 : 60;
+      const ROCK_TOOTH_DEPTH = IS_LANDSCAPE ? 44 : 80;
+      const MIN_CLEARANCE = IS_LANDSCAPE ? 160 : 240;
+      const DOT_COUNT = 200;
+      const DOT_SPEED = 1000;
+      const SONAR_INTERVAL_MS = 3000;
+      const GAME_VERSION = "0.0.4";
       const RECORD_KEY = "sonarDashRecordMeters";
 
       class SonarDash extends Phaser.Scene {
@@ -77,11 +81,15 @@
           this.nextWhaleX = 0;
           this.inputDirection = 0;
           this.ripples = [];
+          this.sonarDots = [];
           this.landChunks = [];
           this.mines = [];
           this.whales = [];
           this.restartRequested = false;
           this.record = this.loadRecord();
+          this.lastTopEdge = ROCK_MIN_DEPTH + 20;
+          this.lastBottomEdge = WORLD_HEIGHT - ROCK_MIN_DEPTH - 20;
+          this.audioCtx = null;
         }
 
         preload() {}
@@ -98,6 +106,9 @@
           this.landLayer = this.add.layer();
           this.mineLayer = this.add.layer();
           this.sonarLayer = this.add.layer();
+          this.dotGraphics = this.add.graphics();
+          this.dotGraphics.setDepth(50);
+          this.dotGraphics.setBlendMode(Phaser.BlendModes.ADD);
           this.uiLayer = this.add.layer();
 
           this.createPlayer();
@@ -120,6 +131,11 @@
           this.spawnWhale();
 
           this.emitSonar();
+          this.sonarTimer = this.time.addEvent({
+            delay: SONAR_INTERVAL_MS,
+            callback: () => { this.emitSonar(); this.playPing(); },
+            loop: true
+          });
         }
 
         loadRecord() {
@@ -280,7 +296,74 @@
           this.uiLayer.add([this.scoreText, this.recordText, this.versionText, this.hintText]);
         }
 
+        initAudio() {
+          if (this.audioCtx) return;
+          try {
+            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          } catch (e) {
+            this.audioCtx = null;
+          }
+        }
+
+        playPing() {
+          if (!this.audioCtx) return;
+          const ctx = this.audioCtx;
+          const t = ctx.currentTime;
+
+          // Sharp ping burst
+          const osc = ctx.createOscillator();
+          const pingGain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(1600, t);
+          osc.frequency.exponentialRampToValueAtTime(900, t + 0.09);
+          pingGain.gain.setValueAtTime(0.28, t);
+          pingGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+          osc.connect(pingGain);
+          pingGain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.12);
+
+          // Echo feedback loop for that sonar reverb
+          const delay = ctx.createDelay(2.0);
+          delay.delayTime.value = 0.22;
+          const fbGain = ctx.createGain();
+          fbGain.gain.value = 0.48;
+          const echoOut = ctx.createGain();
+          echoOut.gain.setValueAtTime(0.18, t);
+          echoOut.gain.exponentialRampToValueAtTime(0.001, t + 2.4);
+
+          pingGain.connect(delay);
+          delay.connect(fbGain);
+          fbGain.connect(delay);
+          delay.connect(echoOut);
+          echoOut.connect(ctx.destination);
+        }
+
+        playExplosion() {
+          if (!this.audioCtx) return;
+          const ctx = this.audioCtx;
+          const frames = Math.floor(ctx.sampleRate * 0.6);
+          const buf = ctx.createBuffer(1, frames, ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < frames; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (frames * 0.25));
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          const filter = ctx.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.value = 180;
+          const gain = ctx.createGain();
+          gain.gain.value = 0.55;
+          src.connect(filter);
+          filter.connect(gain);
+          gain.connect(ctx.destination);
+          src.start();
+        }
+
         handlePointer(pointer) {
+          this.initAudio();
+
           if (this.isGameOver) {
             this.restartGame();
             return;
@@ -295,7 +378,6 @@
             yoyo: true,
             ease: "Sine.easeInOut"
           });
-          this.emitSonar();
           this.hintText.setVisible(false);
         }
 
@@ -328,57 +410,86 @@
             duration: 1280,
             ease: "Quad.easeOut"
           });
+
+          const now = this.time.now;
+          for (let i = 0; i < DOT_COUNT; i++) {
+            const angle = (Math.PI * 2 * i) / DOT_COUNT;
+            this.sonarDots.push({
+              x: this.player.x,
+              y: this.player.y,
+              vx: Math.cos(angle) * DOT_SPEED,
+              vy: Math.sin(angle) * DOT_SPEED,
+              stuck: false,
+              stuckAt: 0,
+              birthAt: now,
+              alive: true
+            });
+          }
         }
 
         drawSonarWave(wave) {
-          const drawSegment = (radius, start, end, color, alpha, width) => {
-            wave.lineStyle(width, color, alpha);
-            wave.beginPath();
-            wave.arc(wave.pulseX, wave.pulseY, radius, start, end, false);
-            wave.strokePath();
-          };
-
           wave.clear();
           const r = wave.radiusNow;
-          drawSegment(r, -0.62, -0.34, 0x7dfcff, 0.88, 2);
-          drawSegment(r, -0.22, 0.22, 0x7dfcff, 0.95, 2);
-          drawSegment(r, 0.34, 0.62, 0x7dfcff, 0.88, 2);
-          drawSegment(r * 0.72, -0.42, -0.18, 0xbaff7a, 0.42, 1);
-          drawSegment(r * 0.72, 0.18, 0.42, 0xbaff7a, 0.42, 1);
+          wave.lineStyle(1.5, 0xcc44ff, 0.55);
+          wave.beginPath();
+          wave.arc(wave.pulseX, wave.pulseY, r, 0, Math.PI * 2, false);
+          wave.strokePath();
+          if (r > 20) {
+            wave.lineStyle(1, 0x8800cc, 0.18);
+            wave.beginPath();
+            wave.arc(wave.pulseX, wave.pulseY, r * 0.68, 0, Math.PI * 2, false);
+            wave.strokePath();
+          }
         }
 
         spawnRockFormation() {
           const x = this.nextChunkX;
-          const width = Phaser.Math.Between(92, 164);
-          const skip = Phaser.Math.FloatBetween(0, 1) < 0.26;
-          if (!skip) {
-            const top = Phaser.Math.FloatBetween(0, 1) < 0.5;
-            const depth = Phaser.Math.Between(ROCK_MIN_DEPTH, ROCK_MAX_DEPTH);
-            const teeth = Phaser.Math.Between(3, 5);
-            const points = [];
+          const width = Phaser.Math.Between(110, 160);
+          const teeth = Phaser.Math.Between(3, 5);
 
-            if (top) {
-              points.push({ x, y: 0 }, { x: x + width, y: 0 });
-              for (let i = teeth; i >= 0; i -= 1) {
-                const px = x + (width * i) / teeth;
-                const edge = depth + Phaser.Math.Between(-ROCK_EDGE_JITTER, Math.floor(ROCK_EDGE_JITTER * 0.6));
-                const tooth = i % 2 === 0 ? edge + Phaser.Math.Between(24, ROCK_TOOTH_DEPTH) : edge;
-                points.push({ x: px, y: Phaser.Math.Clamp(tooth, 42, WORLD_HEIGHT - 120) });
-              }
-              this.createLandPolygon(points, "top");
-            } else {
-              points.push({ x, y: WORLD_HEIGHT }, { x: x + width, y: WORLD_HEIGHT });
-              for (let i = teeth; i >= 0; i -= 1) {
-                const px = x + (width * i) / teeth;
-                const edge = WORLD_HEIGHT - depth + Phaser.Math.Between(-Math.floor(ROCK_EDGE_JITTER * 0.6), ROCK_EDGE_JITTER);
-                const tooth = i % 2 === 0 ? edge - Phaser.Math.Between(24, ROCK_TOOTH_DEPTH) : edge;
-                points.push({ x: px, y: Phaser.Math.Clamp(tooth, 120, WORLD_HEIGHT - 42) });
-              }
-              this.createLandPolygon(points, "bottom");
-            }
+          let newTopEdge = Phaser.Math.Clamp(
+            this.lastTopEdge + Phaser.Math.Between(-26, 26),
+            ROCK_MIN_DEPTH, ROCK_MAX_DEPTH
+          );
+          let newBottomEdge = Phaser.Math.Clamp(
+            this.lastBottomEdge + Phaser.Math.Between(-26, 26),
+            WORLD_HEIGHT - ROCK_MAX_DEPTH, WORLD_HEIGHT - ROCK_MIN_DEPTH
+          );
+
+          if (newBottomEdge - newTopEdge < MIN_CLEARANCE) {
+            const mid = (newTopEdge + newBottomEdge) * 0.5;
+            newTopEdge = mid - MIN_CLEARANCE * 0.5;
+            newBottomEdge = mid + MIN_CLEARANCE * 0.5;
           }
 
-          this.nextChunkX += CHUNK_WIDTH + Phaser.Math.Between(18, 92);
+          // Top wall
+          const topPoints = [{ x, y: 0 }, { x: x + width, y: 0 }];
+          for (let i = teeth; i >= 0; i--) {
+            const px = x + (width * i) / teeth;
+            const t = i / teeth;
+            const baseEdge = Phaser.Math.Linear(newTopEdge, this.lastTopEdge, t);
+            const edge = baseEdge + Phaser.Math.Between(-8, 8);
+            const tooth = i % 2 === 0 ? edge + Phaser.Math.Between(14, ROCK_TOOTH_DEPTH) : edge;
+            topPoints.push({ x: px, y: Phaser.Math.Clamp(tooth, 22, WORLD_HEIGHT - 100) });
+          }
+          this.createLandPolygon(topPoints, "top");
+
+          // Bottom wall
+          const bottomPoints = [{ x, y: WORLD_HEIGHT }, { x: x + width, y: WORLD_HEIGHT }];
+          for (let i = teeth; i >= 0; i--) {
+            const px = x + (width * i) / teeth;
+            const t = i / teeth;
+            const baseEdge = Phaser.Math.Linear(newBottomEdge, this.lastBottomEdge, t);
+            const edge = baseEdge + Phaser.Math.Between(-8, 8);
+            const tooth = i % 2 === 0 ? edge - Phaser.Math.Between(14, ROCK_TOOTH_DEPTH) : edge;
+            bottomPoints.push({ x: px, y: Phaser.Math.Clamp(tooth, 100, WORLD_HEIGHT - 22) });
+          }
+          this.createLandPolygon(bottomPoints, "bottom");
+
+          this.lastTopEdge = newTopEdge;
+          this.lastBottomEdge = newBottomEdge;
+
+          this.nextChunkX += width + Phaser.Math.Between(0, 10);
         }
 
         createLandPolygon(points, kind) {
@@ -420,7 +531,11 @@
             revealAt: -FADE_MS,
             centerX: (minX + maxX) * 0.5,
             centerY: (minY + maxY) * 0.5,
-            radius: Phaser.Math.Distance.Between(minX, minY, maxX, maxY) * 0.5
+            radius: Phaser.Math.Distance.Between(minX, minY, maxX, maxY) * 0.5,
+            minX,
+            maxX,
+            minY,
+            maxY
           };
           this.landChunks.push(chunk);
         }
@@ -577,6 +692,8 @@
           this.scrollWorld(dx);
           this.updateRipples(delta);
           this.updateReveals();
+          this.updateDots(delta);
+          this.renderDots();
         }
 
         scrollWorld(dx) {
@@ -586,6 +703,8 @@
             chunk.collider.x -= dx;
             chunk.collider.body.updateFromGameObject();
             chunk.centerX -= dx;
+            chunk.minX -= dx;
+            chunk.maxX -= dx;
           });
 
           while (this.landChunks.length && this.landChunks[0].centerX < -CHUNK_WIDTH) {
@@ -650,12 +769,6 @@
 
         revealTouchedBy(ring) {
           const now = this.time.now;
-          this.landChunks.forEach((chunk) => {
-            const d = Phaser.Math.Distance.Between(ring.pulseX, ring.pulseY, chunk.centerX, chunk.centerY);
-            if (Math.abs(d - ring.radiusNow) < chunk.radius + SONAR_BAND) {
-              chunk.revealAt = now;
-            }
-          });
 
           this.mines.forEach((mine) => {
             const d = Phaser.Math.Distance.Between(ring.pulseX, ring.pulseY, mine.x, mine.y);
@@ -674,28 +787,130 @@
 
         updateReveals() {
           const now = this.time.now;
-          this.landChunks.forEach((chunk) => {
-            const age = now - chunk.revealAt;
-            const alpha = Phaser.Math.Clamp(1 - age / FADE_MS, 0, 0.92);
-            chunk.graphics.setAlpha(alpha);
-          });
 
           this.mines.forEach((mine) => {
             const age = now - mine.revealAt;
-            const alpha = Phaser.Math.Clamp(1 - age / FADE_MS, 0, 1);
+            const alpha = Phaser.Math.Clamp(1 - age / FADE_MS, 0, 0.88);
             mine.setAlpha(alpha);
           });
 
           this.whales.forEach((whale) => {
             const age = now - whale.revealAt;
-            const alpha = Phaser.Math.Clamp(1 - age / FADE_MS, 0, 0.94);
+            const alpha = Phaser.Math.Clamp(1 - age / FADE_MS, 0, 0.80);
             whale.setAlpha(alpha);
           });
+        }
+
+        updateDots(delta) {
+          const dt = delta / 1000;
+          const now = this.time.now;
+
+          for (let i = this.sonarDots.length - 1; i >= 0; i--) {
+            const d = this.sonarDots[i];
+            if (!d.alive) {
+              this.sonarDots.splice(i, 1);
+              continue;
+            }
+
+            if (d.stuck) {
+              d.x -= SCROLL_SPEED * dt;
+              if (now - d.stuckAt > 2000 || d.x < -30) {
+                d.alive = false;
+              }
+              continue;
+            }
+
+            d.x -= SCROLL_SPEED * dt;
+            d.x += d.vx * dt;
+            d.y += d.vy * dt;
+
+            if (d.x < -20 || d.x > WORLD_WIDTH + 20) {
+              d.alive = false;
+              continue;
+            }
+            if (d.y <= 1 || d.y >= WORLD_HEIGHT - 1) {
+              d.stuck = true;
+              d.stuckAt = now;
+              continue;
+            }
+
+            if (now - d.birthAt > 500) {
+              d.alive = false;
+              continue;
+            }
+
+            let hitSomething = false;
+            for (let c = 0; c < this.landChunks.length && !hitSomething; c++) {
+              const chunk = this.landChunks[c];
+              if (d.x < chunk.minX - 4 || d.x > chunk.maxX + 4) continue;
+              if (chunk.kind === "top" && d.y <= chunk.maxY) {
+                hitSomething = true;
+              } else if (chunk.kind === "bottom" && d.y >= chunk.minY) {
+                hitSomething = true;
+              }
+            }
+
+            if (!hitSomething) {
+              for (let m = 0; m < this.mines.length && !hitSomething; m++) {
+                const mine = this.mines[m];
+                if (Phaser.Math.Distance.Between(d.x, d.y, mine.x, mine.y) < mine.radius) {
+                  hitSomething = true;
+                }
+              }
+            }
+
+            if (!hitSomething) {
+              for (let w = 0; w < this.whales.length && !hitSomething; w++) {
+                const whale = this.whales[w];
+                if (Phaser.Math.Distance.Between(d.x, d.y, whale.x, whale.y) < whale.radius * 0.55) {
+                  hitSomething = true;
+                }
+              }
+            }
+
+            if (hitSomething) {
+              d.stuck = true;
+              d.stuckAt = now;
+            }
+          }
+        }
+
+        renderDots() {
+          const g = this.dotGraphics;
+          g.clear();
+          const now = this.time.now;
+
+          for (let i = 0; i < this.sonarDots.length; i++) {
+            const d = this.sonarDots[i];
+            if (!d.alive) continue;
+
+            if (d.stuck) {
+              const age = now - d.stuckAt;
+              const t = Math.max(0, 1 - age / 2000);
+              const alpha = t * t;
+
+              g.fillStyle(0x9900dd, alpha * 0.09);
+              g.fillCircle(d.x, d.y, 6);
+              g.fillStyle(0xcc44ff, alpha * 0.28);
+              g.fillCircle(d.x, d.y, 3.2);
+              g.fillStyle(0xff88ff, alpha * 0.94);
+              g.fillCircle(d.x, d.y, 1.4);
+            } else {
+              const age = now - d.birthAt;
+              const alpha = Math.max(0, 1 - age / 500) * 0.30;
+              if (alpha > 0.02) {
+                g.fillStyle(0xcc44ff, alpha);
+                g.fillCircle(d.x, d.y, 0.9);
+              }
+            }
+          }
         }
 
         endGame() {
           if (this.isGameOver) return;
           this.isGameOver = true;
+          if (this.sonarTimer) this.sonarTimer.remove(false);
+          this.playExplosion();
           const newRecord = this.saveRecord(this.distance);
           if (this.recordText) {
             this.recordText.setText(`Best ${this.record} m`);
